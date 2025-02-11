@@ -1,0 +1,405 @@
+esphome:
+  name: "wiim-http"
+  friendly_name: WiiM StandAlone IR Gateway
+
+
+esp32:
+  board: esp32dev
+  framework:
+    type: arduino
+
+# Enable logging
+logger:
+  level: DEBUG
+
+# Enable Home Assistant API
+#api:
+
+
+#ota:
+#  - platform: esphome
+#    id: my_ota
+#    password: "sdomotica"
+  
+
+wifi:
+  #ap: {}
+  #output_power: 8.5  
+  ap:
+    ssid: "Wiim_IR_Gateway"
+    password: "sdomotica"
+
+  #ssid: !secret wifi_ssid
+  #password: !secret wifi_password
+
+captive_portal:
+
+globals:
+   - id: volume
+     type: int
+     restore_value: yes
+     initial_value: '10'
+
+   - id: volumetmp
+     type: int
+     restore_value: no
+     initial_value: '0'
+
+   - id: wiimamp
+     type: std::string
+     restore_value: yes
+     initial_value: '"8.8.8.8"'
+
+
+script:
+  - id: http_status
+    then:
+      - http_request.get:
+          #url: https://192.168.1.179/httpapi.asp?command=getPlayerStatus
+          url: !lambda |-
+            return ( "https://" + id(wiimamp) + "/httpapi.asp?command=getPlayerStatus");
+          #verify_ssl: false
+          on_response:
+            then:
+             - lambda: |-
+                json::parse_json(body, [](JsonObject root) -> bool {
+                    id(volume) = root["vol"];
+                    id(sens_3).state = root["vol"];
+                    return true;
+                });                 
+
+
+
+  - id: volumecmd
+#    then:
+#      - http_request.get:
+#          url: !lambda |-
+#            return ( "https://" + id(wiimamp) + "/httpapi.asp?command=setPlayerCmd:vol:" + std::to_string(id(volume)));
+    then:
+      - if:
+          condition:
+            not:
+              lambda: 'return id(wiimamp) == "8.8.8.8";'
+          then:
+            - http_request.get:
+                url: !lambda |-
+                  return ( "https://" + id(wiimamp) + "/httpapi.asp?command=setPlayerCmd:vol:" + std::to_string(id(volume)));
+
+
+
+
+web_server:
+  port: 80
+  log: False
+  version: 3
+
+
+button:
+  - platform: template
+    name: "Status"
+    on_press:
+      - logger.log: Richiesta stato
+      - http_request.get:
+          #url: https://192.168.1.179/httpapi.asp?command=getPlayerStatus
+          url: !lambda |-
+            return ( "https://" + id(wiimamp) + "/httpapi.asp?command=getPlayerStatus");
+          capture_response: true
+          on_response:
+            then:
+#              - logger.log:
+#                  format: "Response status: %d, Duration: %u ms"
+#                  args:
+#                    - response->status_code
+#                    - response->duration_ms
+              - lambda: |-
+                  json::parse_json(body, [](JsonObject root) -> bool {
+                    id(volume) = root["vol"];
+                    id(sens_3).state = root["vol"];
+                    ESP_LOGD("TEST", "%d", id(volume));
+                    return true;
+                  });     
+
+
+
+
+  - platform: template
+    name: "Volume +"
+    on_press:
+      - lambda: |-
+          id(volume) = id(volume) + 2;
+          id(volumecmd).execute();
+  - platform: template
+    name: "Volume -"
+    on_press:
+      - lambda: |-
+          id(volume) = id(volume) - 2;
+          id(volumecmd).execute();
+
+
+number:
+
+#  - platform: template
+#    name: "WiiM Volume"
+#    optimistic: true
+#    min_value: 1
+#    max_value: 100
+#    step: 1
+#    initial_value: 11
+#    restore_value: True
+#    id: sens_3
+#    on_value_range:
+#      - below: !lambda "return id(volume) - 0.5;"
+#        then:
+#          - script.execute: http_status
+#      - above: !lambda "return id(volume) + 0.5;"
+#        then:
+#          - script.execute: http_status
+
+
+
+sensor:
+  - platform: template
+    name: "WiiM Volume"
+    id: sens_3
+      
+
+text_sensor:
+  - platform: wifi_info
+    ip_address:
+      name: IR to WiiM IP Address
+
+  - platform: template
+    name: "_Gateway Version"
+    lambda: |-
+      return {"2025.02.11"};  
+
+  - platform: template
+    name: "IR component for Harmony"
+    lambda: |-
+      return {"Rotel RC-1580"};  
+
+  - platform: template
+    name: "Source WiiM Ethernet"
+    lambda: |-
+      return {"Aux2"};   
+
+  - platform: template
+    name: "Source WiiM Wi-Fi"
+    lambda: |-
+      return {"Aux3"};   
+
+  - platform: template
+    name: "Source WiiM Bluetooth"
+    lambda: |-
+      return {"Tuner"};   
+
+  - platform: template
+    name: "Source WiiM Line-In"
+    lambda: |-
+      return {"CD"};   
+
+  - platform: template
+    name: "Source WiiM Phono"
+    lambda: |-
+      return {"Phono"};   
+
+  - platform: template
+    name: "Source WiiM Optical In"
+    lambda: |-
+      return {"Tape2"};   
+
+
+
+  - platform: template
+    name: "Source WiiM HDMI"
+    lambda: |-
+      return {"AUX1"};   
+
+
+
+
+
+text:
+  - platform: template
+    name: "WiiM IP Address"
+    id: "sens_4"
+    icon: "mdi:text"
+    optimistic: true
+    min_length: 5
+    max_length: 255
+    internal: false
+    initial_value: "Set WiiM IP Address"
+    restore_value: true
+    mode: "TEXT"
+    on_value:
+          then:
+            - lambda: |-
+                ESP_LOGD("main", "The current version is %s", x.c_str());
+                id(wiimamp) = x.c_str();
+
+
+
+
+http_request:
+  useragent: esphome/device
+  timeout: 5s
+  id: http_request_data
+  verify_ssl: False
+
+
+remote_receiver:
+  pin:
+    number: GPIO4
+    inverted: true
+  dump:
+    - lg
+  #  - raw
+
+
+  on_lg :
+    then:
+      - if:
+          condition:
+            or:
+              - lambda: 'return (std::to_string((x.data)) == "3246974999");' #VOL-
+
+          then:
+            - lambda: |-
+                id(volume) = id(volume) - 2;
+                id(volumecmd).execute();
+      - if:
+          condition:
+            or:
+              - lambda: 'return (std::to_string((x.data)) == "3246942359");' #VOL+
+          then:
+            - lambda: |-
+                id(volume) = id(volume) + 2;
+                id(volumecmd).execute();
+
+      - if:
+          condition:
+            or:
+              - lambda: 'return (std::to_string((x.data)) == "3246921959");'  #3246921959 Mute
+          then:
+            - http_request.get:
+                url: !lambda |-
+                  return ( "https://" + id(wiimamp) + "/httpapi.asp?command=setPlayerCmd:mute:1");
+                #verify_ssl: false
+
+      - if:
+          condition:
+            or:
+              - lambda: 'return (std::to_string((x.data)) == "3246924509");' #3246924509 Freccia DX
+          then:
+            - http_request.get:
+                url: !lambda |-
+                  return ( "https://" + id(wiimamp) + "/httpapi.asp?command=setPlayerCmd:next");
+                #verify_ssl: false
+                # id(mqtt_client).publish("wiim/" + id(wiimamp) + "/cmd", "next");
+
+      - if:
+          condition:
+            or:
+              - lambda: 'return (std::to_string((x.data)) == "3246957149");'  #3246957149 Freccia SX 
+          then:
+            - http_request.get:
+                url: !lambda |-
+                  return ( "https://" + id(wiimamp) + "/httpapi.asp?command=setPlayerCmd:prev");
+                #verify_ssl: false
+                #  id(mqtt_client).publish("wiim/" + id(wiimamp) + "/cmd", "prev");
+
+      - if:
+          condition:
+            or:
+              - lambda: 'return (std::to_string((x.data)) == "3246972959");' #3246972959 Input Aux1 - HDMI
+          then:
+            - http_request.get:
+                #url: httpapi.asp?command=setPlayerCmd:switchmode:HDMI
+                url: !lambda |-
+                  return ( "https://" + id(wiimamp) + "/httpapi.asp?command=setPlayerCmd:switchmode:HDMI");
+                #verify_ssl: false
+                #  id(mqtt_client).publish("wiim/" + id(wiimamp) + "/output", "HDMI");
+
+      - if:
+          condition:
+            or:
+              - lambda: 'return (std::to_string((x.data)) == "3246948479");' #3246948479 Input CD - Line-IN
+          then:
+            - http_request.get:
+                url: !lambda |-
+                  return ( "https://" + id(wiimamp) + "/httpapi.asp?command=setPlayerCmd:switchmode:line-in");
+                #verify_ssl: false
+
+      - if:
+          condition:
+            or:
+              - lambda: 'return (std::to_string((x.data)) == "3246964799");'   #3246964799 Input Aux2 - Ethernet
+          then:
+            - http_request.get:
+                url: !lambda |-
+                  return ( "https://" + id(wiimamp) + "/httpapi.asp?command=setPlayerCmd:switchmode:Ethernet");
+                #verify_ssl: false
+      - if:
+          condition:
+            or:
+              - lambda: 'return (std::to_string((x.data)) == "3246923999");'  #3246923999 Input Aux3 - Wifi
+
+          then:
+            - http_request.get:
+                url: !lambda |-
+                  return ( "https://" + id(wiimamp) + "/httpapi.asp?command=setPlayerCmd:switchmode:wifi");
+                #verify_ssl: false
+      - if:
+          condition:
+            or:
+              - lambda: 'return (std::to_string((x.data)) == "3246940319");' #3246936239 Input Tape2 - Optical
+          then:
+            - http_request.get:
+                url: !lambda |-
+                  return ( "https://" + id(wiimamp) + "/httpapi.asp?command=setPlayerCmd:switchmode:optical");
+                #verify_ssl: false
+
+      - if:
+          condition:
+            or:
+              - lambda: 'return (std::to_string((x.data)) == "3246936239");' #3246936239 Input Phono - Phono
+          then:
+            - http_request.get:
+                url: !lambda |-
+                  return ( "https://" + id(wiimamp) + "/httpapi.asp?command=setPlayerCmd:switchmode:phono");
+                #verify_ssl: false
+
+      - if:
+          condition:
+            or:
+              - lambda: 'return (std::to_string((x.data)) == "3246932159");'  #3246932159 Input Tuner - Bluetooth
+          then:
+            - http_request.get:
+                url: !lambda |-
+                  return ( "https://" + id(wiimamp) + "/httpapi.asp?command=setPlayerCmd:switchmode:bluetooth");
+                #verify_ssl: false
+
+
+#3246974999 VOL-
+#3246942359 VOL+
+#3246924509 Freccia DX
+#3246957149 Freccia SX              
+#3246921959 Mute
+#3246948479 Input CD - Line-IN
+#3246936239 Input Phono - Phono
+#3246972959 Input Aux1 - HDMI
+#3246964799 Input Aux2 - Ethernet
+#3246923999 Input Aux3 - Wifi
+#3246956639 Input Tape1
+#3246940319 Input Tape2 - Optical
+#3246932159 Input Tuner - Bluetooth
+#3242739895 Keypad 0
+#3242758255 Keypad 1
+#3242768455 Keypad 2
+#3242784775 Keypad 3
+#3242766415 Keypad 4
+#3242760295 Keypad 5
+#3242776615 Keypad 6
+#3242756215 Keypad 7
+#3242764375 Keypad 8
+#3242780695 Keypad 9
